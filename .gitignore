@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+*.env
+
+# Logs
+logs/
+*.log
+
+# Trading data
+backtests/
+trades/
+*.csv
+*.json
+!config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Runtime
+.runtime/
+*.tmp
+*.cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+secrets/
+*.key
+*.pem

@@ -1,0 +1,49 @@
+name: "08-Checkpoint Validator"
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkpoint_number:
+        description: 'Checkpoint number (20, 50, 100, 200)'
+        required: true
+        type: number
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: "Validate checkpoint tag"
+        run: |
+          CHECKPOINT=${{ github.event.inputs.checkpoint_number }}
+          echo "✅ Validating checkpoint #${CHECKPOINT}"
+          echo "Timestamp: $(date -Iseconds)"
+          
+          # Check if tag exists
+          if git rev-parse "checkpoint-${CHECKPOINT}" >/dev/null 2>&1; then
+            echo "✅ Tag checkpoint-${CHECKPOINT} exists"
+            git show "checkpoint-${CHECKPOINT}" --no-patch --format="%s%n%b" | head -20
+          else
+            echo "❌ Tag checkpoint-${CHECKPOINT} NOT FOUND"
+            exit 1
+          fi
+      
+      - name: "Create validation artifact"
+        run: |
+          CHECKPOINT=${{ github.event.inputs.checkpoint_number }}
+          echo "Checkpoint ${CHECKPOINT} validated at $(date -Iseconds)" > validation.txt
+          echo "Workflow: ${{ github.workflow }}" >> validation.txt
+          echo "Run ID: ${{ github.run_id }}" >> validation.txt
+          echo "Commit: ${{ github.sha }}" >> validation.txt
+      
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v3
+        with:
+          name: checkpoint-${{ github.event.inputs.checkpoint_number }}-validation
+          path: validation.txt
+          retention-days: 30

@@ -1,0 +1,45 @@
+name: "CI-Alive"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+      
+      - name: "CI Heartbeat"
+        run: |
+          echo "✅ GitHub Actions OPERATIONAL"
+          echo "Timestamp: $(date -Iseconds)"
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+      
+      - name: "System Info"
+        run: |
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Runner: $(uname -a)"
+          echo "Git version: $(git --version)"
+          echo "Python version: $(python --version 2>&1 || echo 'Not installed')"
+      
+      - name: "Create proof artifact"
+        run: |
+          echo "CI Bootstrap verified at $(date -Iseconds)" > ci-proof.txt
+          echo "Run ID: ${{ github.run_id }}" >> ci-proof.txt
+          echo "OVERLORD-SUPREME: OPERATIONAL" >> ci-proof.txt
+          echo "Mode: API-First Aggressive" >> ci-proof.txt
+      
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v3
+        with:
+          name: ci-alive-proof
+          path: ci-proof.txt
+          retention-days: 7
