@@ -1,0 +1,33 @@
+# GRAIL AGENT - Production Dependencies
+# Migrated from Legion monorepo: 2025-12-13
+# Trading-specific dependencies only
+
+# Core dependencies
+supabase==2.24.0
+python-dotenv==1.2.1
+httpx==0.27.2
+
+# Browser automation (for trading UI interaction)
+playwright==1.56.0
+
+# Testing
+pytest>=8.3.4
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+pytest-playwright>=0.6.2
+
+# Logging
+structlog>=24.4.0
+
+# Performance
+orjson>=3.10.14
+
+# Async operations
+aiofiles>=24.1.0
+
+# Monitoring
+prometheus-client>=0.21.1
+psutil>=6.1.1
+
+# Rate limiting
+tenacity>=9.0.0
