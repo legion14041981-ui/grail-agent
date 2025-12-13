@@ -1,0 +1,45 @@
+{
+  "checkpoint": 20,
+  "timestamp": "2025-12-13T05:00:44+03:00",
+  "win_rate": 0.75,
+  "total_pnl": 137.32,
+  "total_pnl_percent": 13.5,
+  "trades": 20,
+  "wins": 15,
+  "losses": 5,
+  "balance": 1151.00,
+  "initial_balance": 1013.68,
+  "commit": "48c2b239600ad201d84cbe5f79d9674290bf363d",
+  "branch": "recovery/checkpoint-20",
+  "status": "VALIDATED",
+  "patterns": {
+    "CLASSIC": {
+      "trades": 11,
+      "win_rate": 0.727,
+      "description": "Standard technical patterns"
+    },
+    "NEWSEVENT": {
+      "trades": 5,
+      "win_rate": 1.0,
+      "description": "News-driven volatility events"
+    },
+    "VOLEVENT": {
+      "trades": 4,
+      "win_rate": 0.5,
+      "description": "Pure volatility events"
+    }
+  },
+  "component_health": {
+    "api_success_rate": 1.0,
+    "fallback_usage": 0.0,
+    "avg_trade_time_seconds": 30.4,
+    "emergency_stop": false,
+    "circuit_breaker": "CLOSED"
+  },
+  "overlord": {
+    "mode": "OVERLORD-SUPREME",
+    "architecture": "API-First",
+    "creation_method": "GitHub API",
+    "bootstrap_timestamp": "2025-12-13T20:58:00+03:00"
+  }
+}
