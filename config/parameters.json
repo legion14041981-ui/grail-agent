@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "created_at": "2025-12-15T16:14:00+03:00",
+  "description": "Grail Agent system parameters - managed by Overlord SafeExecutor",
+  "parameters": {
+    "confidence_threshold": 0.70,
+    "max_predictions": 20,
+    "ttl_short": 1800,
+    "ttl_medium": 3600,
+    "ttl_long": 7200,
+    "api_retry_count": 3,
+    "api_timeout_ms": 10000,
+    "ui_fallback_threshold": 5
+  },
+  "modifications": [],
+  "notes": [
+    "This file is managed by Overlord SafeExecutor",
+    "Only SAFE (PARAMETER scope) approved plans can modify values",
+    "All changes are backed up in .baseline/backups/",
+    "Rollback capability available",
+    "Human approval required for all modifications"
+  ]
+}
