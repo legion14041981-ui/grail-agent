@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Grail Agent - Autonomous Trading System for Walbi Platform
-Version: 2.2.0 (Overlord Sentinel Integration)
+Version: 2.3.0-phase1 (Overlord Controller Bootstrap)
 Author: OVERLORD-SUPREME / Legion Framework
 Date: 2025-12-15
-Updated: Baseline collection + risk monitoring
+Updated: Phase 1 - Controller initialization only
 
 Proven Performance (Day 5):
 - Win Rate: 75%
@@ -32,6 +32,7 @@ try:
     from playwright.sync_api import sync_playwright, Browser, Page
     from transformers import pipeline
     from overlord_sentinel import BaselineCollector, RiskSentinel, OverlordReport
+    from overlord_controller import OverlordController, ExecutionGuard
 except ImportError as e:
     print(f"Missing dependency: {e}")
     print("Install: pip install python-dotenv supabase playwright transformers torch")
@@ -114,6 +115,7 @@ class GrailAgent:
     Features:
     - API-first execution with UI fallback
     - Overlord Sentinel (baseline + risk monitoring)
+    - Overlord Controller (control signals) - PHASE 1 BOOTSTRAP
     - Real Walbi event scraping
     - ML-based sentiment analysis
     - Intelligent confidence calculation
@@ -163,6 +165,21 @@ class GrailAgent:
         # Overlord Sentinel (baseline + risk monitoring)
         self.baseline_collector = BaselineCollector()
         self.risk_sentinel = RiskSentinel(self.baseline_collector)
+        
+        # Overlord Controller (PHASE 1: bootstrap only)
+        # Пассивный режим: не влияет на execution
+        self.overlord_controller = None
+        self.execution_guard = None
+        try:
+            self.overlord_controller = OverlordController(
+                baseline=self.baseline_collector,
+                sentinel=self.risk_sentinel
+            )
+            self.execution_guard = ExecutionGuard(self.overlord_controller)
+            self.logger.debug("✓ Overlord Controller initialized (passive mode)")
+        except Exception as e:
+            self.logger.debug(f"⚠️  Overlord Controller init failed (non-critical): {e}")
+            # Graceful degradation: продолжаем без контроллера
         
         self.logger.info(f"Grail Agent initialized: mode={mode}, bankroll=${bankroll:.2f}")
         self.logger.info("✓ Overlord Sentinel: baseline collection active")
@@ -246,7 +263,7 @@ class GrailAgent:
                 f"{walbi_api_url}/api/events",
                 timeout=10,
                 headers={
-                    'User-Agent': 'GrailAgent/2.2',
+                    'User-Agent': 'GrailAgent/2.3',
                     'Accept': 'application/json'
                 }
             )
@@ -722,7 +739,7 @@ class GrailAgent:
                 checks.append(("Supabase", True))
                 self.api_metrics.record_supabase(True)
             else:
-                self.logger.info("⊘ Check 2/5: Supabase not configured (skip)")
+                self.logger.info("⊚ Check 2/5: Supabase not configured (skip)")
                 checks.append(("Supabase", None))
         except Exception as e:
             self.logger.error(f"✗ Supabase failed: {e}")
