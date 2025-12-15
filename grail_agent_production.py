@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Grail Agent - Autonomous Trading System for Walbi Platform
-Version: 2.0.0 (Full Production)
+Version: 2.1.0 (API-First Production)
 Author: OVERLORD-SUPREME / Legion Framework
-Date: 2025-12-13
-Restored: Full-featured version from dialog specification
+Date: 2025-12-15
+Updated: API-first execution strategy with hybrid fallback
 
 Proven Performance (Day 5):
 - Win Rate: 75%
@@ -24,6 +24,7 @@ import argparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+from enum import Enum
 
 try:
     from dotenv import load_dotenv
@@ -36,6 +37,13 @@ except ImportError as e:
     sys.exit(1)
 
 load_dotenv()
+
+
+class ExecutionChannel(Enum):
+    """Канал выполнения операций"""
+    API = "api"      # Прямой API call (приоритет)
+    UI = "ui"        # Browser automation (фолбэк)
+    DEMO = "demo"    # Синтетические данные (безопасный фолбэк)
 
 
 class APIMetrics:
@@ -99,6 +107,7 @@ class GrailAgent:
     Full-featured autonomous trading agent for Walbi platform
     
     Features:
+    - API-first execution with UI fallback
     - Real Walbi event scraping
     - ML-based sentiment analysis
     - Intelligent confidence calculation
@@ -203,52 +212,139 @@ class GrailAgent:
             self.logger.error(f"ML model init failed: {e}")
             self.sentiment_analyzer = None
 
+    def _scrape_via_api(self) -> Optional[List[Dict]]:
+        """
+        Попытка получить события через Walbi API
+        
+        API-first подход: если Walbi предоставляет REST endpoint,
+        используем его в первую очередь.
+        
+        Returns:
+            List of events or None if API unavailable/failed
+        """
+        walbi_api_url = os.getenv('WALBI_API_URL')
+        if not walbi_api_url:
+            self.logger.debug("⚠️  WALBI_API_URL not configured, skipping API attempt")
+            return None
+        
+        try:
+            import requests
+            
+            self.logger.info("🔌 Attempting API-first approach...")
+            response = requests.get(
+                f"{walbi_api_url}/api/events",
+                timeout=10,
+                headers={
+                    'User-Agent': 'GrailAgent/2.1',
+                    'Accept': 'application/json'
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                events = self._parse_api_events(data)
+                
+                if events:
+                    self.logger.info(f"✅ API success: {len(events)} events retrieved")
+                    self.api_metrics.record_operation('api')
+                    return events
+            
+            self.logger.warning(f"⚠️  API returned status {response.status_code}")
+            return None
+            
+        except ImportError:
+            self.logger.debug("⚠️  requests library not available, skipping API")
+            return None
+        except Exception as e:
+            self.logger.warning(f"⚠️  API attempt failed: {e}")
+            return None
+
+    def _parse_api_events(self, data: dict) -> List[Dict]:
+        """Парсинг событий из API response"""
+        events = []
+        for item in data.get('events', []):
+            events.append({
+                'title': item.get('title', 'Unknown'),
+                'description': item.get('description', ''),
+                'odds': item.get('odds', 2.0),
+                'deadline': item.get('deadline', datetime.now().isoformat()),
+                'scraped_at': datetime.now().isoformat(),
+                'source': 'api'
+            })
+        return events
+
     def scrape_walbi_events(self) -> List[Dict]:
         """
         Scrape live events from Walbi platform
         
+        Hybrid strategy:
+        1. Demo mode → synthetic events (no network)
+        2. Live mode → API → UI fallback → demo fallback
+        
         Returns:
             List of events with metadata
         """
+        # Demo mode: всегда используем синтетические данные
         if self.mode == "demo":
-            # Demo mode: generate synthetic events
+            self.logger.debug("🎮 Demo mode: using synthetic events")
             return self._generate_demo_events()
         
+        # Live mode: API-first стратегия
+        self.logger.info("🔍 Live mode: attempting event retrieval...")
+        
+        # Попытка #1: API
+        events = self._scrape_via_api()
+        if events:
+            self.logger.info(f"✅ Channel: {ExecutionChannel.API.value} (preferred)")
+            return events
+        
+        self.logger.info("🔄 API unavailable, falling back to UI scraping...")
+        
+        # Попытка #2: UI (Playwright)
         if not self.page:
             self.browser, self.page = self.init_playwright()
         
-        try:
-            walbi_url = os.getenv('WALBI_URL', 'https://walbi.com/events')
-            self.page.goto(walbi_url, timeout=30000)
-            self.page.wait_for_selector('.event-card', timeout=10000)
-            
-            events = []
-            event_cards = self.page.query_selector_all('.event-card')
-            
-            for card in event_cards[:10]:  # Limit to 10 events
-                try:
-                    title = card.query_selector('.event-title').inner_text()
-                    description = card.query_selector('.event-description').inner_text()
-                    odds = card.query_selector('.event-odds').inner_text()
-                    deadline = card.query_selector('.event-deadline').inner_text()
+        if self.page:
+            try:
+                walbi_url = os.getenv('WALBI_URL', 'https://walbi.com/events')
+                self.page.goto(walbi_url, timeout=30000)
+                self.page.wait_for_selector('.event-card', timeout=10000)
+                
+                events = []
+                event_cards = self.page.query_selector_all('.event-card')
+                
+                for card in event_cards[:10]:  # Limit to 10 events
+                    try:
+                        title = card.query_selector('.event-title').inner_text()
+                        description = card.query_selector('.event-description').inner_text()
+                        odds = card.query_selector('.event-odds').inner_text()
+                        deadline = card.query_selector('.event-deadline').inner_text()
+                        
+                        events.append({
+                            'title': title,
+                            'description': description,
+                            'odds': odds,
+                            'deadline': deadline,
+                            'scraped_at': datetime.now().isoformat(),
+                            'source': 'ui'
+                        })
+                    except Exception as e:
+                        self.logger.warning(f"Failed to parse event card: {e}")
+                        continue
+                
+                if events:
+                    self.logger.info(f"✅ Channel: {ExecutionChannel.UI.value} (fallback)")
+                    self.logger.info(f"Scraped {len(events)} events via UI")
+                    self.api_metrics.record_operation('ui')
+                    return events
                     
-                    events.append({
-                        'title': title,
-                        'description': description,
-                        'odds': odds,
-                        'deadline': deadline,
-                        'scraped_at': datetime.now().isoformat()
-                    })
-                except Exception as e:
-                    self.logger.warning(f"Failed to parse event card: {e}")
-                    continue
-            
-            self.logger.info(f"Scraped {len(events)} events from Walbi")
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"Walbi scraping failed: {e}")
-            return self._generate_demo_events()
+            except Exception as e:
+                self.logger.error(f"❌ UI scraping failed: {e}")
+        
+        # Попытка #3: Demo fallback (безопасный)
+        self.logger.warning("⚠️  All scraping methods failed, using demo events")
+        self.logger.info(f"✅ Channel: {ExecutionChannel.DEMO.value} (safety fallback)")
+        return self._generate_demo_events()
 
     def _generate_demo_events(self) -> List[Dict]:
         """Generate synthetic events for demo mode"""
@@ -266,7 +362,8 @@ class GrailAgent:
                 'asset': asset,
                 'odds': random.uniform(1.5, 2.5),
                 'deadline': (datetime.now() + timedelta(hours=random.randint(1, 24))).isoformat(),
-                'scraped_at': datetime.now().isoformat()
+                'scraped_at': datetime.now().isoformat(),
+                'source': 'demo'
             })
         
         return events
@@ -426,8 +523,10 @@ class GrailAgent:
             return
         try:
             self.supabase.table('trades').insert(trade_data).execute()
+            self.api_metrics.record_supabase(True)
         except Exception as e:
             self.logger.error(f"Failed to log trade: {e}")
+            self.api_metrics.record_supabase(False)
 
     def _health_check(self):
         """Monitor system health and trigger emergency controls"""
@@ -568,8 +667,10 @@ class GrailAgent:
             }
             self.supabase.table('predictions').insert(prediction_data).execute()
             self.predictions_logged += 1
+            self.api_metrics.record_supabase(True)
         except Exception as e:
             self.logger.error(f"Failed to log prediction: {e}")
+            self.api_metrics.record_supabase(False)
 
     def run_smoke_test(self):
         """
@@ -693,9 +794,14 @@ class GrailAgent:
             sys.exit(0)
 
     def print_summary(self):
-        """Print comprehensive session summary"""
+        """Полный отчёт о сессии с API-first метриками"""
         win_rate = (self.wins / self.trades_executed * 100) if self.trades_executed > 0 else 0
         roi = (self.total_profit / self.initial_bankroll * 100) if self.initial_bankroll > 0 else 0
+        
+        # API-first метрики
+        api_summary = self.api_metrics.get_summary()
+        api_score = api_summary['api_first_score']
+        ui_fallbacks = api_summary['ui_fallbacks']
         
         summary = f"""
 ╔═══════════════════════════════════════════════════════════════╗
@@ -714,6 +820,14 @@ class GrailAgent:
 ║                                                               ║
 ║  Emergency Stop: {'YES' if self.emergency_stop else 'NO':5s}                                 ║
 ║  Circuit Breaker: {'TRIGGERED' if self.circuit_breaker_triggered else 'CLOSED':10s}                          ║
+║                                                               ║
+╠═══════════════════════════════════════════════════════════════╣
+║              API-FIRST COMPLIANCE METRICS                     ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  API-First Score: {api_score:6.1f}%                                    ║
+║  UI Fallbacks:    {ui_fallbacks:3d}                                        ║
+║  Supabase:        {api_summary['supabase_success_rate']:6.1f}% success                           ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
