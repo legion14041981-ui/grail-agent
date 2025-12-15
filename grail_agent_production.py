@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Grail Agent - Autonomous Trading System for Walbi Platform
-Version: 2.1.0 (API-First Production)
+Version: 2.2.0 (Overlord Sentinel Integration)
 Author: OVERLORD-SUPREME / Legion Framework
 Date: 2025-12-15
-Updated: API-first execution strategy with hybrid fallback
+Updated: Baseline collection + risk monitoring
 
 Proven Performance (Day 5):
 - Win Rate: 75%
-- P&L: +$137.32 (+13.5%)
+- P/L: +$137.32 (+13.5%)
 - Trades: 20
 - Balance: $1,151.00
 - API Success: 100%
@@ -31,6 +31,7 @@ try:
     from supabase import create_client, Client
     from playwright.sync_api import sync_playwright, Browser, Page
     from transformers import pipeline
+    from overlord_sentinel import BaselineCollector, RiskSentinel, OverlordReport
 except ImportError as e:
     print(f"Missing dependency: {e}")
     print("Install: pip install python-dotenv supabase playwright transformers torch")
@@ -58,7 +59,8 @@ class APIMetrics:
             'ui_fallbacks': 0,
             'playwright_invocations': 0,
             'supabase_calls': 0,
-            'supabase_failures': 0
+            'supabase_failures': 0,
+            'demo_fallbacks': 0  # Добавлен счётчик demo fallbacks
         }
     
     def record_operation(self, operation_type: str):
@@ -69,6 +71,8 @@ class APIMetrics:
             self.metrics['playwright_invocations'] += 1
         elif operation_type == 'api':
             self.metrics['api_calls'] += 1
+        elif operation_type == 'demo':
+            self.metrics['demo_fallbacks'] += 1
     
     def record_supabase(self, success: bool):
         """Записать Supabase операцию"""
@@ -90,6 +94,7 @@ class APIMetrics:
             'total_ops': self.metrics['total_operations'],
             'api_first_score': self.get_api_first_score(),
             'ui_fallbacks': self.metrics['ui_fallbacks'],
+            'demo_fallbacks': self.metrics['demo_fallbacks'],
             'supabase_success_rate': self._supabase_success_rate()
         }
     
@@ -108,6 +113,7 @@ class GrailAgent:
     
     Features:
     - API-first execution with UI fallback
+    - Overlord Sentinel (baseline + risk monitoring)
     - Real Walbi event scraping
     - ML-based sentiment analysis
     - Intelligent confidence calculation
@@ -151,10 +157,15 @@ class GrailAgent:
         self.page = None
         self.sentiment_analyzer = None
         
-        # API metrics tracking (MVO)
+        # API metrics tracking
         self.api_metrics = APIMetrics()
         
+        # Overlord Sentinel (baseline + risk monitoring)
+        self.baseline_collector = BaselineCollector()
+        self.risk_sentinel = RiskSentinel(self.baseline_collector)
+        
         self.logger.info(f"Grail Agent initialized: mode={mode}, bankroll=${bankroll:.2f}")
+        self.logger.info("✓ Overlord Sentinel: baseline collection active")
 
     def setup_logging(self):
         """Configure comprehensive logging"""
@@ -235,7 +246,7 @@ class GrailAgent:
                 f"{walbi_api_url}/api/events",
                 timeout=10,
                 headers={
-                    'User-Agent': 'GrailAgent/2.1',
+                    'User-Agent': 'GrailAgent/2.2',
                     'Accept': 'application/json'
                 }
             )
@@ -344,6 +355,7 @@ class GrailAgent:
         # Попытка #3: Demo fallback (безопасный)
         self.logger.warning("⚠️  All scraping methods failed, using demo events")
         self.logger.info(f"✅ Channel: {ExecutionChannel.DEMO.value} (safety fallback)")
+        self.api_metrics.record_operation('demo')
         return self._generate_demo_events()
 
     def _generate_demo_events(self) -> List[Dict]:
@@ -794,7 +806,7 @@ class GrailAgent:
             sys.exit(0)
 
     def print_summary(self):
-        """Полный отчёт о сессии с API-first метриками"""
+        """Полный отчёт о сессии с Overlord Sentinel"""
         win_rate = (self.wins / self.trades_executed * 100) if self.trades_executed > 0 else 0
         roi = (self.total_profit / self.initial_bankroll * 100) if self.initial_bankroll > 0 else 0
         
@@ -833,6 +845,40 @@ class GrailAgent:
 """
         self.logger.info(summary)
         print(summary)
+        
+        # === OVERLORD SENTINEL REPORT ===
+        try:
+            # Записать метрики сессии
+            self.baseline_collector.record_metric('api_first_score', api_score)
+            self.baseline_collector.record_metric('ui_fallbacks', ui_fallbacks)
+            self.baseline_collector.record_metric('demo_fallbacks', api_summary['demo_fallbacks'])
+            self.baseline_collector.record_metric('supabase_success_rate', api_summary['supabase_success_rate'])
+            
+            # Проверить риски
+            current_metrics = {
+                'api_first_score': api_score,
+                'ui_fallbacks': ui_fallbacks,
+                'demo_fallbacks': api_summary['demo_fallbacks'],
+                'supabase_success_rate': api_summary['supabase_success_rate']
+            }
+            self.risk_sentinel.check_risks(current_metrics)
+            
+            # Сгенерировать отчёт
+            overlord_report_obj = OverlordReport(self.baseline_collector, self.risk_sentinel)
+            overlord_report = overlord_report_obj.generate()
+            
+            # Вывести
+            print(overlord_report_obj.format_human_readable(overlord_report))
+            print(self.risk_sentinel.format_report())
+            
+            # Сохранить baseline
+            self.baseline_collector.save_session()
+            
+            # Сохранить отчёт в JSON
+            overlord_report_obj.save_report(overlord_report)
+            
+        except Exception as e:
+            self.logger.warning(f"Overlord Sentinel failed (non-critical): {e}")
 
     def cleanup(self):
         """Cleanup resources"""
