@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Grail Agent - Autonomous Trading System for Walbi Platform
-Version: 2.3.0-phase1 (Overlord Controller Bootstrap)
+Version: 2.3.0 (Overlord Controller - Level 1 Autonomy)
 Author: OVERLORD-SUPREME / Legion Framework
 Date: 2025-12-15
-Updated: Phase 1 - Controller initialization only
+Updated: Phase 2 - Full control signals integration
 
 Proven Performance (Day 5):
 - Win Rate: 75%
@@ -115,7 +115,7 @@ class GrailAgent:
     Features:
     - API-first execution with UI fallback
     - Overlord Sentinel (baseline + risk monitoring)
-    - Overlord Controller (control signals) - PHASE 1 BOOTSTRAP
+    - Overlord Controller (Level 1 Autonomy)
     - Real Walbi event scraping
     - ML-based sentiment analysis
     - Intelligent confidence calculation
@@ -166,8 +166,7 @@ class GrailAgent:
         self.baseline_collector = BaselineCollector()
         self.risk_sentinel = RiskSentinel(self.baseline_collector)
         
-        # Overlord Controller (PHASE 1: bootstrap only)
-        # Пассивный режим: не влияет на execution
+        # Overlord Controller (Level 1 Autonomy)
         self.overlord_controller = None
         self.execution_guard = None
         try:
@@ -176,7 +175,7 @@ class GrailAgent:
                 sentinel=self.risk_sentinel
             )
             self.execution_guard = ExecutionGuard(self.overlord_controller)
-            self.logger.debug("✓ Overlord Controller initialized (passive mode)")
+            self.logger.info("✓ Overlord Controller: Level 1 Autonomy active")
         except Exception as e:
             self.logger.debug(f"⚠️  Overlord Controller init failed (non-critical): {e}")
             # Graceful degradation: продолжаем без контроллера
@@ -634,13 +633,41 @@ class GrailAgent:
             return False
 
     def run(self, num_predictions: int = 20):
-        """Execute trading session"""
+        """Execute trading session with Overlord Controller"""
         self.logger.info(f"Starting Grail Agent: {num_predictions} predictions")
+        
+        # Проверить execution guards перед началом
+        if self.execution_guard:
+            # Early exit check
+            should_exit, exit_reason = self.execution_guard.should_exit_ci()
+            if should_exit:
+                self.logger.warning(f"🎯 Overlord: Early exit requested - {exit_reason}")
+                self.print_summary()
+                return
+            
+            # Prediction limit check
+            pred_limit = self.execution_guard.get_prediction_limit()
+            if pred_limit and pred_limit < num_predictions:
+                self.logger.info(f"🎯 Overlord: Prediction limit enforced: {pred_limit} (requested: {num_predictions})")
+                num_predictions = pred_limit
         
         for i in range(num_predictions):
             if self.emergency_stop:
                 self.logger.error("Trading halted by emergency stop")
                 break
+            
+            # Overlord Controller: evaluate and apply control signals
+            if self.overlord_controller:
+                try:
+                    current_metrics = {
+                        'api_first_score': self.api_metrics.get_api_first_score(),
+                        'ui_fallbacks': self.api_metrics.metrics['ui_fallbacks'],
+                        'demo_fallbacks': self.api_metrics.metrics['demo_fallbacks'],
+                        'supabase_success_rate': self.api_metrics._supabase_success_rate()
+                    }
+                    self.overlord_controller.evaluate_and_apply(current_metrics)
+                except Exception as e:
+                    self.logger.debug(f"Overlord evaluation failed (non-critical): {e}")
             
             try:
                 # Scrape events
@@ -823,7 +850,7 @@ class GrailAgent:
             sys.exit(0)
 
     def print_summary(self):
-        """Полный отчёт о сессии с Overlord Sentinel"""
+        """Полный отчёт о сессии с Overlord Sentinel + Controller"""
         win_rate = (self.wins / self.trades_executed * 100) if self.trades_executed > 0 else 0
         roi = (self.total_profit / self.initial_bankroll * 100) if self.initial_bankroll > 0 else 0
         
@@ -863,7 +890,7 @@ class GrailAgent:
         self.logger.info(summary)
         print(summary)
         
-        # === OVERLORD SENTINEL REPORT ===
+        # === OVERLORD SENTINEL + CONTROLLER REPORT ===
         try:
             # Записать метрики сессии
             self.baseline_collector.record_metric('api_first_score', api_score)
@@ -882,7 +909,12 @@ class GrailAgent:
             
             # Сгенерировать отчёт
             overlord_report_obj = OverlordReport(self.baseline_collector, self.risk_sentinel)
-            overlord_report = overlord_report_obj.generate()
+            
+            # С control signals если контроллер активен
+            if self.overlord_controller:
+                overlord_report = overlord_report_obj.generate_with_control_signals(self.overlord_controller)
+            else:
+                overlord_report = overlord_report_obj.generate()
             
             # Вывести
             print(overlord_report_obj.format_human_readable(overlord_report))
