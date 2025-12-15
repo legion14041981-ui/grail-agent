@@ -10,7 +10,8 @@
     "ttl_long": 7200,
     "api_retry_count": 3,
     "api_timeout_ms": 10000,
-    "ui_fallback_threshold": 5
+    "ui_fallback_threshold": 5,
+    "overlord_step7_enabled": false
   },
   "modifications": [],
   "notes": [
@@ -18,6 +19,7 @@
     "Only SAFE (PARAMETER scope) approved plans can modify values",
     "All changes are backed up in .baseline/backups/",
     "Rollback capability available",
-    "Human approval required for all modifications"
+    "Human approval required for all modifications",
+    "overlord_step7_enabled controls STEP 7 SupremeReportV2 reporting (default: false)"
   ]
 }
