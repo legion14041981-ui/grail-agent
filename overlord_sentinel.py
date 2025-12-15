@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Overlord Sentinel - Baseline Collection & Risk Monitoring
-Version: 1.0.0 (Passive Mode)
+Version: 1.1.0 (With Control Signals Integration)
 Author: OVERLORD-SUPREME / Legion Framework
 Date: 2025-12-15
 
-Mode: READ-ONLY
-- No automatic fixes
-- No architecture changes
-- Only observation and alerts
+Mode: READ-ONLY + LEVEL 1 AUTONOMY
+- Baseline collection
+- Risk detection
+- Control signals reporting
 """
 
 import json
@@ -16,8 +16,11 @@ import logging
 import statistics
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from enum import Enum
+
+if TYPE_CHECKING:
+    from overlord_controller import OverlordController, ControlSignal
 
 
 class RiskAttractor(Enum):
@@ -239,14 +242,14 @@ class OverlordReport:
         self.logger = logging.getLogger('OverlordReport')
     
     def generate(self) -> dict:
-        """Сгенерировать полный отчёт"""
+        """Сгенерировать базовый отчёт"""
         baseline_summary = self.baseline.get_baseline_summary()
         current_session = self.baseline.current_session
         risk_signals = self.sentinel.signals
         
         return {
             'overlord': {
-                'version': '1.0.0',
+                'version': '1.1.0',
                 'timestamp': datetime.now().isoformat(),
                 'mode': 'passive_sentinel'
             },
@@ -259,6 +262,63 @@ class OverlordReport:
             },
             'recommendations': self._generate_recommendations(risk_signals)
         }
+    
+    def generate_with_control_signals(self, controller: 'OverlordController') -> dict:
+        """
+        Сгенерировать отчёт с control signals
+        
+        LEVEL 1 AUTONOMY: добавляет секцию активных сигналов
+        """
+        base_report = self.generate()  # Базовый отчёт
+        
+        # Добавить секцию control signals
+        active_signals = controller.get_active_signals()
+        
+        base_report['overlord']['mode'] = 'level_1_autonomy'
+        base_report['control_signals'] = {
+            'autonomy_level': 'LEVEL_1_SANCTIONED',
+            'total_active': len(active_signals),
+            'signals': [s.to_dict() for s in active_signals],
+            'execution_controls': {
+                'force_demo_mode': controller.execution_controls.force_demo_mode,
+                'block_live_mode': controller.execution_controls.block_live_mode,
+                'disable_ui_fallback': controller.execution_controls.disable_ui_fallback,
+                'confidence_threshold': controller.execution_controls.confidence_threshold,
+                'max_predictions': controller.execution_controls.max_predictions,
+                'ci_early_exit': controller.execution_controls.ci_early_exit
+            },
+            'decision_log': controller.decision_log[-10:]  # Последние 10 решений
+        }
+        
+        # Рекомендации для человека
+        base_report['human_recommendations'] = self._generate_human_recommendations(active_signals)
+        
+        return base_report
+    
+    def _generate_human_recommendations(self, signals: List['ControlSignal']) -> List[str]:
+        """Генерировать рекомендации для человека"""
+        recs = []
+        
+        # Импорт тут чтобы избежать circular import
+        from overlord_controller import ControlSignalType
+        
+        for signal in signals:
+            if signal.signal_type == ControlSignalType.HARD_LIMIT:
+                recs.append(f"🔴 REVIEW: {signal.action} (Reason: {signal.reason})")
+                recs.append(f"   → Action: Review {signal.attractor.value} root cause")
+            
+            elif signal.signal_type == ControlSignalType.MODE_DOWNGRADE:
+                recs.append(f"🟡 MONITOR: {signal.action}")
+                recs.append(f"   → Option: Override if {signal.attractor.value} resolved")
+            
+            elif signal.signal_type == ControlSignalType.EARLY_EXIT:
+                recs.append(f"🟡 ACKNOWLEDGE: {signal.action}")
+                recs.append(f"   → Suggested: Investigate {signal.attractor.value}")
+        
+        if not recs:
+            recs.append("✅ No active control signals, system operating normally")
+        
+        return recs
     
     def _count_by_level(self, signals: List[Dict]) -> dict:
         """Подсчитать сигналы по уровням"""
@@ -312,10 +372,38 @@ class OverlordReport:
         output += f"║    🟢 Low: {by_level['low']}" + " " * (49 - len(str(by_level['low']))) + "║\n"
         
         output += "║" + " " * 62 + "║\n"
+        
+        # Control signals (если есть)
+        if 'control_signals' in report:
+            cs = report['control_signals']
+            output += "╠" + "═" * 62 + "╣\n"
+            output += "║" + " " * 15 + "CONTROL SIGNALS (LEVEL 1)" + " " * 22 + "║\n"
+            output += "╠" + "═" * 62 + "╣\n"
+            output += "║" + " " * 62 + "║\n"
+            output += f"║  Active Signals: {cs['total_active']}" + " " * (44 - len(str(cs['total_active']))) + "║\n"
+            
+            controls = cs['execution_controls']
+            if controls['force_demo_mode']:
+                output += "║    🔴 Force Demo Mode: ACTIVE" + " " * 29 + "║\n"
+            if controls['block_live_mode']:
+                output += "║    🔴 Block Live Mode: ACTIVE" + " " * 29 + "║\n"
+            if controls['disable_ui_fallback']:
+                output += "║    🟡 Disable UI Fallback: ACTIVE" + " " * 24 + "║\n"
+            if controls['max_predictions']:
+                output += f"║    🟡 Prediction Limit: {controls['max_predictions']}" + " " * (33 - len(str(controls['max_predictions']))) + "║\n"
+            if controls['ci_early_exit']:
+                output += "║    ⚠️  CI Early Exit: ACTIVE" + " " * 30 + "║\n"
+            
+            output += "║" + " " * 62 + "║\n"
+        
         output += "╚" + "═" * 62 + "╝\n"
         
         # Recommendations
-        if report['recommendations']:
+        if report.get('human_recommendations'):
+            output += "\nHUMAN RECOMMENDATIONS:\n"
+            for rec in report['human_recommendations']:
+                output += f"  {rec}\n"
+        elif report.get('recommendations'):
             output += "\nRECOMMENDATIONS:\n"
             for rec in report['recommendations']:
                 output += f"  {rec}\n"
