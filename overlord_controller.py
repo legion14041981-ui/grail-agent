@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """
 Overlord Controller - Control Signals Framework
-Version: 1.0.0 (Level 1 Autonomy)
+Version: 1.1.0 (Level 1 + Level 2 Autonomy)
 Author: OVERLORD-SUPREME / Legion Framework
 Date: 2025-12-15
+Updated: Integrated MetaPlanner (Level 2)
 
 Autonomy Level: LEVEL 1 (Sanctioned)
 - Execution guards
 - Mode downgrade
 - Parameter limits
 - Early exit
+
+Autonomy Level: LEVEL 2 (Meta-Planning)
+- Change proposal generation
+- Risk classification
+- Optimization planning
+- Human approval required
 
 Restrictions:
 - No code changes
@@ -26,6 +33,16 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 from overlord_sentinel import RiskAttractor, RiskLevel, BaselineCollector, RiskSentinel
+
+# STEP 5: Meta-Planning Layer (Level 2 Autonomy)
+try:
+    from overlord_metaplanner import MetaPlanner, PlanRegistry, ChangePlan
+    META_PLANNER_AVAILABLE = True
+except ImportError:
+    META_PLANNER_AVAILABLE = False
+    MetaPlanner = None
+    PlanRegistry = None
+    ChangePlan = None
 
 
 class ControlSignalType(Enum):
@@ -172,9 +189,10 @@ class ExecutionControls:
 
 class OverlordController:
     """
-    Контроллер Overlord: Metrics → Sentinel → Signals → Guards
+    Контроллер Overlord: Metrics → Sentinel → Signals → Guards → MetaPlanner
     
     LEVEL 1 AUTONOMY: Санкционированное влияние
+    LEVEL 2 AUTONOMY: Meta-planning (предложения изменений)
     """
     
     def __init__(self, baseline: BaselineCollector, sentinel: RiskSentinel):
@@ -184,6 +202,20 @@ class OverlordController:
         self.execution_controls = ExecutionControls()
         self.decision_log = []
         self.logger = logging.getLogger('OverlordController')
+        
+        # STEP 5: Meta-Planning Layer (Level 2)
+        self.meta_planner = None
+        self.plan_registry = None
+        
+        if META_PLANNER_AVAILABLE:
+            try:
+                self.meta_planner = MetaPlanner(baseline, sentinel)
+                self.plan_registry = PlanRegistry()
+                self.logger.info("✓ Meta-Planner initialized (Level 2 Autonomy)")
+            except Exception as e:
+                self.logger.debug(f"⚠️  Meta-Planner init failed (non-critical): {e}")
+        else:
+            self.logger.debug("⚠️  Meta-Planner not available (overlord_metaplanner.py missing)")
     
     def evaluate_and_apply(self, current_metrics: dict) -> ExecutionControls:
         """
@@ -208,6 +240,56 @@ class OverlordController:
         self._log_decisions()
         
         return self.execution_controls
+    
+    def generate_plans(self, current_metrics: dict) -> List:
+        """
+        Сгенерировать change plans (ПРЕДЛОЖЕНИЯ изменений)
+        
+        LEVEL 2 AUTONOMY: Meta-Planning
+        - Анализ baseline trends
+        - Генерация планов оптимизации
+        - Классификация рисков
+        
+        ULTRA-BLACK COMPLIANCE:
+        - Нет авто-применения
+        - Только предложения
+        - Human approval требуется
+        
+        Returns:
+            List of ChangePlan objects
+        """
+        if not self.meta_planner or not self.plan_registry:
+            self.logger.debug("⚠️  Meta-Planner not available, skipping plan generation")
+            return []
+        
+        try:
+            # Анализ + генерация планов
+            plans = self.meta_planner.analyze_and_plan(current_metrics, self.decision_log)
+            
+            # Добавить в registry
+            for plan in plans:
+                self.plan_registry.add_plan(plan)
+            
+            if plans:
+                self.logger.info(f"🧠 Meta-Planner: {len(plans)} change plans generated")
+            
+            return plans
+        
+        except Exception as e:
+            self.logger.warning(f"Meta-Planner failed (non-critical): {e}")
+            return []
+    
+    def get_active_plans(self) -> List:
+        """
+        Получить активные change plans
+        
+        Returns:
+            List of ChangePlan objects with status='proposed'
+        """
+        if not self.plan_registry:
+            return []
+        
+        return self.plan_registry.get_plans_by_status('proposed')
     
     def _generate_control_signals(self, risk_signals: List[Dict]) -> List[ControlSignal]:
         """Генерировать control signals из risk signals"""
