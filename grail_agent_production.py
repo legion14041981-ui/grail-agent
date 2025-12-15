@@ -38,6 +38,62 @@ except ImportError as e:
 load_dotenv()
 
 
+class APIMetrics:
+    """
+    Сбор метрик API vs UI использования
+    Версия: MVO (Minimal Viable Overlord) - только структура
+    """
+    def __init__(self):
+        self.metrics = {
+            'total_operations': 0,
+            'api_calls': 0,
+            'ui_fallbacks': 0,
+            'playwright_invocations': 0,
+            'supabase_calls': 0,
+            'supabase_failures': 0
+        }
+    
+    def record_operation(self, operation_type: str):
+        """Записать операцию (api или ui)"""
+        self.metrics['total_operations'] += 1
+        if operation_type == 'ui':
+            self.metrics['ui_fallbacks'] += 1
+            self.metrics['playwright_invocations'] += 1
+        elif operation_type == 'api':
+            self.metrics['api_calls'] += 1
+    
+    def record_supabase(self, success: bool):
+        """Записать Supabase операцию"""
+        self.metrics['supabase_calls'] += 1
+        if not success:
+            self.metrics['supabase_failures'] += 1
+    
+    def get_api_first_score(self) -> float:
+        """Процент API-first compliance"""
+        total = self.metrics['total_operations']
+        if total == 0:
+            return 100.0
+        api = self.metrics['api_calls']
+        return (api / total) * 100.0
+    
+    def get_summary(self) -> dict:
+        """Получить summary метрик"""
+        return {
+            'total_ops': self.metrics['total_operations'],
+            'api_first_score': self.get_api_first_score(),
+            'ui_fallbacks': self.metrics['ui_fallbacks'],
+            'supabase_success_rate': self._supabase_success_rate()
+        }
+    
+    def _supabase_success_rate(self) -> float:
+        """Supabase success rate"""
+        calls = self.metrics['supabase_calls']
+        if calls == 0:
+            return 100.0
+        failures = self.metrics['supabase_failures']
+        return ((calls - failures) / calls) * 100.0
+
+
 class GrailAgent:
     """
     Full-featured autonomous trading agent for Walbi platform
@@ -85,6 +141,9 @@ class GrailAgent:
         self.browser = None
         self.page = None
         self.sentiment_analyzer = None
+        
+        # API metrics tracking (MVO)
+        self.api_metrics = APIMetrics()
         
         self.logger.info(f"Grail Agent initialized: mode={mode}, bankroll=${bankroll:.2f}")
 
@@ -512,6 +571,127 @@ class GrailAgent:
         except Exception as e:
             self.logger.error(f"Failed to log prediction: {e}")
 
+    def run_smoke_test(self):
+        """
+        Smoke test: минимальная проверка окружения без ML/Playwright
+        
+        Проверяет:
+        - Logging работает
+        - Supabase доступен (если настроен)
+        - Demo event generation
+        - Базовая логика confidence calculation
+        - Checkpoint directory writable
+        
+        Время выполнения: <10 секунд
+        Exit code: 0 = success, 1 = failure
+        """
+        self.logger.info("═══════════════════════════════════")
+        self.logger.info("🔥 SMOKE TEST MODE")
+        self.logger.info("═══════════════════════════════════")
+        
+        checks = []
+        start_time = time.time()
+        
+        # Check 1: Logging
+        try:
+            self.logger.info("✓ Check 1/5: Logging system")
+            checks.append(("Logging", True))
+        except Exception as e:
+            self.logger.error(f"✗ Logging failed: {e}")
+            checks.append(("Logging", False))
+        
+        # Check 2: Supabase (optional)
+        try:
+            if self.supabase:
+                # Простой health check
+                result = self.supabase.table('predictions').select('*').limit(1).execute()
+                self.logger.info("✓ Check 2/5: Supabase connection")
+                checks.append(("Supabase", True))
+                self.api_metrics.record_supabase(True)
+            else:
+                self.logger.info("⊘ Check 2/5: Supabase not configured (skip)")
+                checks.append(("Supabase", None))
+        except Exception as e:
+            self.logger.error(f"✗ Supabase failed: {e}")
+            checks.append(("Supabase", False))
+            if self.supabase:
+                self.api_metrics.record_supabase(False)
+        
+        # Check 3: Demo events
+        try:
+            events = self._generate_demo_events()
+            if len(events) >= 1:
+                self.logger.info(f"✓ Check 3/5: Demo events ({len(events)} generated)")
+                checks.append(("Demo Events", True))
+            else:
+                self.logger.error("✗ Demo events: empty result")
+                checks.append(("Demo Events", False))
+        except Exception as e:
+            self.logger.error(f"✗ Demo events failed: {e}")
+            checks.append(("Demo Events", False))
+        
+        # Check 4: Confidence calculation (без ML)
+        try:
+            if len(events) > 0:
+                event = events[0]
+                sentiment = {'label': 'NEUTRAL', 'score': 0.5}
+                confidence = self.calculate_confidence(event, sentiment)
+                
+                if 0.0 < confidence <= 1.0:
+                    self.logger.info(f"✓ Check 4/5: Confidence logic ({confidence:.2%})")
+                    checks.append(("Confidence Logic", True))
+                else:
+                    self.logger.error(f"✗ Confidence out of range: {confidence}")
+                    checks.append(("Confidence Logic", False))
+            else:
+                self.logger.error("✗ Cannot test confidence: no events")
+                checks.append(("Confidence Logic", False))
+        except Exception as e:
+            self.logger.error(f"✗ Confidence logic failed: {e}")
+            checks.append(("Confidence Logic", False))
+        
+        # Check 5: Checkpoint directory
+        try:
+            self.checkpoint_dir.mkdir(exist_ok=True)
+            test_file = self.checkpoint_dir / ".smoke_test"
+            test_file.write_text(f"smoke test {datetime.now().isoformat()}")
+            test_file.unlink()
+            self.logger.info("✓ Check 5/5: Checkpoint directory writable")
+            checks.append(("Checkpoints", True))
+        except Exception as e:
+            self.logger.error(f"✗ Checkpoint directory failed: {e}")
+            checks.append(("Checkpoints", False))
+        
+        # Summary
+        elapsed = time.time() - start_time
+        passed = sum(1 for _, status in checks if status is True)
+        failed = sum(1 for _, status in checks if status is False)
+        skipped = sum(1 for _, status in checks if status is None)
+        total = passed + failed + skipped
+        
+        self.logger.info("═══════════════════════════════════")
+        self.logger.info(f"🔥 SMOKE TEST COMPLETE ({elapsed:.1f}s)")
+        self.logger.info(f"   Total:   {total}")
+        self.logger.info(f"   Passed:  {passed}")
+        self.logger.info(f"   Failed:  {failed}")
+        self.logger.info(f"   Skipped: {skipped}")
+        self.logger.info("═══════════════════════════════════")
+        
+        # Детализация провалов
+        if failed > 0:
+            self.logger.error("\nFailed checks:")
+            for name, status in checks:
+                if status is False:
+                    self.logger.error(f"  - {name}")
+        
+        # Exit code
+        if failed > 0:
+            self.logger.error("\n🔴 SMOKE TEST FAILED")
+            sys.exit(1)
+        else:
+            self.logger.info("\n✅ SMOKE TEST PASSED")
+            sys.exit(0)
+
     def print_summary(self):
         """Print comprehensive session summary"""
         win_rate = (self.wins / self.trades_executed * 100) if self.trades_executed > 0 else 0
@@ -558,8 +738,8 @@ def main():
         '--mode',
         type=str,
         default='demo',
-        choices=['demo', 'live'],
-        help='Trading mode: demo (simulated) or live (real money)'
+        choices=['demo', 'live', 'smoke'],
+        help='Trading mode: demo (simulated), live (real), smoke (health check)'
     )
     parser.add_argument(
         '--bankroll',
@@ -587,7 +767,11 @@ def main():
         if args.load_checkpoint:
             agent.load_checkpoint(args.load_checkpoint)
         
-        agent.run(num_predictions=args.num_predictions)
+        # Выбор режима выполнения
+        if args.mode == 'smoke':
+            agent.run_smoke_test()  # Не возвращается (exit внутри)
+        else:
+            agent.run(num_predictions=args.num_predictions)
     
     except KeyboardInterrupt:
         print("\n⚠️  Interrupted by user")
