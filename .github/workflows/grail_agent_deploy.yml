@@ -2,8 +2,23 @@ name: Grail Agent Auto-Deploy
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
-  workflow_dispatch:  # Manual trigger
+    - cron: '*/15 * * * *'  # Every 15 minutes (optimized from */5)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Trading mode (demo/live/smoke)'
+        required: false
+        default: 'demo'
+        type: choice
+        options:
+          - demo
+          - smoke
+          - live
+      num_predictions:
+        description: 'Number of predictions'
+        required: false
+        default: '10'
+        type: string
   push:
     branches: [main]
     paths:
@@ -14,6 +29,7 @@ on:
 jobs:
   run-grail-agent:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent runaway jobs
     
     steps:
       - name: Checkout code
@@ -24,38 +40,186 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      
-      - name: Install dependencies
+      # ═══════════════════════════════════════════════════════════════
+      # SMOKE TEST GATE: Fast environment validation before heavy deps
+      # ═══════════════════════════════════════════════════════════════
+      - name: Install minimal dependencies for smoke test
         run: |
           python -m pip install --upgrade pip
+          pip install python-dotenv supabase
+      
+      - name: Run smoke test (early gate)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "🔥 Running smoke test as CI gate..."
+          python grail_agent_production.py --mode smoke
+        continue-on-error: false
+      
+      # ═══════════════════════════════════════════════════════════════
+      # SYSTEM DEPENDENCIES: Required for Playwright
+      # ═══════════════════════════════════════════════════════════════
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 \
+            libnss3 \
+            libnspr4 \
+            libdbus-1-3 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libgbm1 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libasound2
+      
+      # ═══════════════════════════════════════════════════════════════
+      # CACHE: pip + huggingface models
+      # ═══════════════════════════════════════════════════════════════
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/huggingface
+          key: ${{ runner.os }}-python-${{ hashFiles('**/requirements.txt') }}-v2
+          restore-keys: |
+            ${{ runner.os }}-python-
+      
+      # ═══════════════════════════════════════════════════════════════
+      # DEPENDENCIES: torch CPU-only + requirements
+      # ═══════════════════════════════════════════════════════════════
+      - name: Install dependencies
+        run: |
+          # Install torch CPU-only BEFORE requirements.txt
+          pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
-          playwright install chromium
+      
+      - name: Install Playwright browsers
+        run: |
+          playwright install chromium --with-deps
+      
+      # ═══════════════════════════════════════════════════════════════
+      # VERIFICATION: Check environment
+      # ═══════════════════════════════════════════════════════════════
+      - name: Verify environment
+        run: |
+          echo "Python: $(python --version)"
+          echo "Pip packages:"
+          pip list | grep -E "torch|transformers|playwright|supabase"
+          echo "Playwright: $(playwright --version)"
+      
+      # ═══════════════════════════════════════════════════════════════
+      # EXECUTION: Run Grail Agent
+      # ═══════════════════════════════════════════════════════════════
+      - name: Determine execution mode
+        id: mode
+        run: |
+          # CI safety: scheduled runs always use demo
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="demo"
+            echo "🔒 Scheduled run: forcing demo mode"
+          else
+            MODE="${{ github.event.inputs.mode || 'demo' }}"
+            echo "📝 Manual run: mode=$MODE"
+          fi
+          
+          # Additional safety: block live on push events
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if [ "$MODE" = "live" ]; then
+              echo "🚨 ERROR: live mode forbidden on push events"
+              exit 1
+            fi
+          fi
+          
+          echo "MODE=$MODE" >> $GITHUB_OUTPUT
       
       - name: Run Grail Agent
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WALBI_URL: ${{ secrets.WALBI_URL }}
+          WALBI_USERNAME: ${{ secrets.WALBI_USERNAME }}
+          WALBI_PASSWORD: ${{ secrets.WALBI_PASSWORD }}
         run: |
-          python grail_agent_production.py --mode demo --bankroll 100 --num-predictions 10
+          MODE="${{ steps.mode.outputs.MODE }}"
+          NUM_PRED="${{ github.event.inputs.num_predictions || '10' }}"
+          
+          echo "═══════════════════════════════════════"
+          echo "🚀 Starting Grail Agent"
+          echo "Mode: $MODE"
+          echo "Predictions: $NUM_PRED"
+          echo "Run: ${{ github.run_number }}"
+          echo "═══════════════════════════════════════"
+          
+          python grail_agent_production.py \
+            --mode "$MODE" \
+            --bankroll 100 \
+            --num-predictions "$NUM_PRED"
       
-      - name: Upload logs
+      # ═══════════════════════════════════════════════════════════════
+      # ARTIFACTS: Logs + checkpoints
+      # ═══════════════════════════════════════════════════════════════
+      - name: Upload logs and state
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: grail-logs-${{ github.run_number }}
-          path: grail_agent.log
-          retention-days: 7
+          name: grail-session-${{ github.run_number }}
+          path: |
+            grail_agent.log
+            .checkpoints/*.json
+          retention-days: 30
       
-      - name: Report status
+      # ═══════════════════════════════════════════════════════════════
+      # REPORTING: Metrics and status
+      # ═══════════════════════════════════════════════════════════════
+      - name: Report metrics
         if: always()
         run: |
-          echo "✅ Grail Agent execution complete"
+          echo "═══════════════════════════════════════"
+          echo "📊 GRAIL AGENT RUN SUMMARY"
+          echo "═══════════════════════════════════════"
           echo "Run ID: ${{ github.run_id }}"
+          echo "Mode: ${{ steps.mode.outputs.MODE }}"
           echo "Timestamp: $(date -Iseconds)"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo ""
+          
+          if [ -f grail_agent.log ]; then
+            echo "Last 30 lines of log:"
+            tail -30 grail_agent.log
+          else
+            echo "⚠️  Log file not found"
+          fi
+      
+      - name: Verify Supabase connection
+        if: success()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          import os
+          from supabase import create_client
+          try:
+              url = os.getenv('SUPABASE_URL')
+              key = os.getenv('SUPABASE_KEY')
+              if url and key:
+                  client = create_client(url, key)
+                  print('✅ Supabase connection verified')
+              else:
+                  print('⊘ Supabase credentials not configured')
+          except Exception as e:
+              print(f'❌ Supabase connection failed: {e}')
+              exit(1)
+          "
