@@ -45,3 +45,9 @@ Thumbs.db
 secrets/
 *.key
 *.pem
+
+# Checkpoints (local state, preserved in CI artifacts)
+.checkpoints/
+
+# Baseline metrics (local collection, preserved in CI artifacts)
+.baseline/
