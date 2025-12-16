@@ -952,6 +952,15 @@ class GrailAgent:
 """
         self.logger.info(summary)
         print(summary)
+
+            # STEP 7: Supreme Report v2 (reporting only, if enabled)
+            if hasattr(self, 'step7_enabled') and self.step7_enabled:
+                try:
+                    self._generate_supreme_report_v2()
+                except Exception as e:
+                    self.logger.warning(f"⚠️  Supreme Report generation failed: {e}")
+                    # Graceful degradation: continue without report
+
         
         # Overlord Sentinel Report
         try:
@@ -983,6 +992,39 @@ class GrailAgent:
             
         except Exception as e:
             self.logger.warning(f"Overlord Sentinel failed: {e}")
+
+        def _generate_supreme_report_v2(self):
+        """
+        Generate STEP 7 Supreme Report v2 (reporting only, read-only).
+        MODIFIKACIYA 3 - Reporting-only integration.
+        """
+        if not STEP7_AVAILABLE:
+            return
+        
+        try:
+            verifier = ExecutionVerifier()
+            verifications = verifier.get_latest_verifications(limit=100)
+            
+            if not verifications:
+                self.logger.debug("No STEP 7 verifications to report")
+                return
+            
+            supreme_reporter = OverlordSupremeReportV2()
+            report = supreme_reporter.generate_comprehensive_report(
+                verifications=verifications,
+                cycle_statistics=None,
+                baseline_snapshots=None
+            )
+            
+            formatted = supreme_reporter.format_supreme_report(report)
+            print(formatted)
+            self.logger.info("✓ Supreme Report v2 generated")
+            
+        except Exception as e:
+            self.logger.error(f"Supreme Report generation failed: {e}")
+            # Graceful degradation: log error but don't break flow
+
+
 
     def cleanup(self):
         """Cleanup resources"""
