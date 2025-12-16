@@ -47,6 +47,15 @@ except ImportError as e:
     print("Install: pip install python-dotenv supabase playwright transformers torch")
     sys.exit(1)
 
+# STEP 7 modules availability check (import test only)
+try:
+    from overlord_verifier import ExecutionVerifier
+    from overlord_feedback_loop import CycleOrchestrator
+    from overlord_supreme_report_v2 import OverlordSupremeReportV2
+    STEP7_AVAILABLE = True
+except ImportError:
+    STEP7_AVAILABLE = False
+
 load_dotenv()
 
 
@@ -287,6 +296,22 @@ class GrailAgent:
             self.logger.info("  PlanApprover:       ✓ Ready")
             self.logger.info("  SafeExecutor:       ✓ Ready")
             self.logger.info("  Autonomy Level:     2.5 (Sanctioned Execution)")
+            self.logger.info("═" * 50)
+
+        # STEP 7 integration (guarded by feature flag)
+            if STEP7_AVAILABLE:
+                self.step7_enabled = self.config_loader.get_parameter(
+                    'overlord_step7_enabled',
+                    False  # DEFAULT: OFF
+                )
+                if self.step7_enabled:
+                    self.logger.warning("⚠️  STEP 7: SupremeReportV2 enabled (experimental)")
+                else:
+                    self.logger.debug("STEP 7: SupremeReportV2 disabled (safe mode)")
+            else:
+                self.step7_enabled = False
+                self.logger.debug("STEP 7: modules unavailable (graceful degradation)")
+            
             self.logger.info("═" * 50)
             
         except Exception as e:
